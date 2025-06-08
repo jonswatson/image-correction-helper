@@ -23,10 +23,13 @@ class PointSelector(QWidget):
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.raise_()  # Ensure widget is on top
     
     def start_selection(self):
         """Start point selection mode."""
         self.is_selecting = True
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.raise_()  # Ensure widget is on top
         self.update()
     
     def stop_selection(self):
@@ -44,6 +47,10 @@ class PointSelector(QWidget):
         self.hover_point = None
         self.dragging_point = None
         self.drag_start = None
+        self.is_locked = False
+        self.is_selecting = True  # Ensure selection is enabled after clearing
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.raise_()  # Ensure widget is on top
         self.update()
     
     def set_locked(self, locked):

@@ -163,12 +163,18 @@ class MainWindow(QMainWindow):
                 # Convert RGBA to BGR (OpenCV format)
                 self.original_image = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
                 
-                # Clear points and grid
+                # Reset point selector and grid
                 self.point_selector.clear_points()
                 self.grid_overlay.set_points([])
+                self.grid_overlay.show_grid(False)
                 
                 # Reset preview
                 self.preview_checkbox.setChecked(False)
+                
+                # Ensure point selector is properly initialized
+                self.point_selector.setGeometry(0, 0, self.image_view.width(), self.image_view.height())
+                self.point_selector.start_selection()
+                self.point_selector.raise_()
                 
         except Exception as e:
             logger.error(f"Error opening image: {e}")
