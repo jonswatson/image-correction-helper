@@ -17,6 +17,7 @@ class DistortionSelector(QWidget):
         self.grid_points = None  # 2D array of grid points
         self.hover_point = None
         self.is_active = False
+        self.vectors = []  # List of (point, grid_point) pairs
         
         # Set up the widget
         self.setMouseTracking(True)
@@ -26,6 +27,9 @@ class DistortionSelector(QWidget):
         
         # Set widget to be transparent but still receive events
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        # Allow events to propagate to parent
+        self.setAttribute(Qt.WidgetAttribute.WA_NoMousePropagation, False)
     
     def set_active(self, active):
         """Set the active state."""
@@ -62,13 +66,18 @@ class DistortionSelector(QWidget):
     def mousePressEvent(self, event):
         """Handle mouse press events."""
         try:
-            if not self.is_active:
-                event.ignore()
-                return
-            
             # Get the parent ImageView
             image_view = self.parent()
             if not image_view:
+                return
+            
+            # If parent is panning, ignore the event
+            if image_view.is_panning:
+                event.ignore()
+                return
+            
+            if not self.is_active:
+                event.ignore()
                 return
             
             # Convert viewport coordinates to image coordinates
@@ -81,6 +90,8 @@ class DistortionSelector(QWidget):
                 if grid_point:
                     # Add point
                     self.points.append(image_pos)
+                    # Add vector association
+                    self.vectors.append((image_pos, grid_point))
                     self.point_added.emit(image_pos, grid_point)
                     self.update()
                     event.accept()
@@ -93,6 +104,8 @@ class DistortionSelector(QWidget):
                     viewport_point = image_view.map_to_viewport(point)
                     if (viewport_point - viewport_pos).manhattanLength() < 10:
                         removed_point = self.points.pop(i)
+                        # Remove vector association
+                        self.vectors.pop(i)
                         self.point_removed.emit(removed_point)
                         self.update()
                         event.accept()
@@ -106,13 +119,18 @@ class DistortionSelector(QWidget):
     def mouseMoveEvent(self, event):
         """Handle mouse move events."""
         try:
-            if not self.is_active:
-                event.ignore()
-                return
-            
             # Get the parent ImageView
             image_view = self.parent()
             if not image_view:
+                return
+            
+            # If parent is panning, ignore the event
+            if image_view.is_panning:
+                event.ignore()
+                return
+            
+            if not self.is_active:
+                event.ignore()
                 return
             
             # Convert viewport coordinates to image coordinates
@@ -132,6 +150,28 @@ class DistortionSelector(QWidget):
             event.accept()
         except Exception as e:
             logger.error(f"Error in mouse move event: {e}")
+            event.ignore()
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events."""
+        try:
+            # Get the parent ImageView
+            image_view = self.parent()
+            if not image_view:
+                return
+            
+            # If parent is panning, ignore the event
+            if image_view.is_panning:
+                event.ignore()
+                return
+            
+            if not self.is_active:
+                event.ignore()
+                return
+            
+            event.accept()
+        except Exception as e:
+            logger.error(f"Error in mouse release event: {e}")
             event.ignore()
     
     def paintEvent(self, event):
@@ -179,8 +219,13 @@ class DistortionSelector(QWidget):
         """Get the current points."""
         return self.points.copy()
     
+    def get_vectors(self):
+        """Get the current vector associations."""
+        return self.vectors.copy()
+    
     def clear_points(self):
         """Clear all points."""
         self.points.clear()
+        self.vectors.clear()
         self.hover_point = None
         self.update() 

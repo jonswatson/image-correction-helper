@@ -415,24 +415,28 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to update distortion mode: {e}")
     
     def _on_distortion_point_added(self, point, grid_point):
-        """Handle distortion point added event."""
+        """Handle distortion point added."""
         try:
-            self.distortion_points.append(point)
-            self.distortion_vectors.append((point, grid_point))
-            self.grid_overlay.set_distortion_points(self.distortion_points, self.distortion_vectors)
+            # Get vectors from distortion selector
+            self.distortion_vectors = self.distortion_selector.get_vectors()
+            # Update grid overlay
+            self.grid_overlay.set_distortion_points(
+                [p for p, _ in self.distortion_vectors],
+                self.distortion_vectors
+            )
         except Exception as e:
             logger.error(f"Error handling distortion point added: {e}")
     
     def _on_distortion_point_removed(self, point):
-        """Handle distortion point removed event."""
+        """Handle distortion point removed."""
         try:
-            # Find and remove the point and its vector
-            for i, (p, _) in enumerate(self.distortion_vectors):
-                if p == point:
-                    self.distortion_points.pop(i)
-                    self.distortion_vectors.pop(i)
-                    break
-            self.grid_overlay.set_distortion_points(self.distortion_points, self.distortion_vectors)
+            # Get vectors from distortion selector
+            self.distortion_vectors = self.distortion_selector.get_vectors()
+            # Update grid overlay
+            self.grid_overlay.set_distortion_points(
+                [p for p, _ in self.distortion_vectors],
+                self.distortion_vectors
+            )
         except Exception as e:
             logger.error(f"Error handling distortion point removed: {e}")
     
@@ -518,26 +522,6 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             super().keyReleaseEvent(event)
-    
-    def mousePressEvent(self, event):
-        """Handle mouse press events."""
-        if self.space_pressed and event.button() == Qt.MouseButton.LeftButton:
-            self.last_mouse_pos = event.pos()
-        super().mousePressEvent(event)
-    
-    def mouseMoveEvent(self, event):
-        """Handle mouse move events."""
-        if self.space_pressed and self.last_mouse_pos is not None:
-            delta = event.pos() - self.last_mouse_pos
-            self.image_view.pan(delta.x(), delta.y())
-            self.last_mouse_pos = event.pos()
-        super().mouseMoveEvent(event)
-    
-    def mouseReleaseEvent(self, event):
-        """Handle mouse release events."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.last_mouse_pos = None
-        super().mouseReleaseEvent(event)
     
     def _clear_points(self):
         """Clear all selected points."""

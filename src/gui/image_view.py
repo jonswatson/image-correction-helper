@@ -82,8 +82,8 @@ class ImageView(QWidget):
             self.last_mouse_pos = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
-        else:
-            super().mousePressEvent(event)
+            return
+        super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
         """Handle mouse move events."""
@@ -95,8 +95,8 @@ class ImageView(QWidget):
             self._update_scaled_pixmap()
             self.update()
             event.accept()
-        else:
-            super().mouseMoveEvent(event)
+            return
+        super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event):
         """Handle mouse release events."""
@@ -105,8 +105,8 @@ class ImageView(QWidget):
             if self.is_panning:
                 self.setCursor(Qt.CursorShape.OpenHandCursor)
             event.accept()
-        else:
-            super().mouseReleaseEvent(event)
+            return
+        super().mouseReleaseEvent(event)
     
     def wheelEvent(self, event):
         """Handle wheel events for zooming."""
