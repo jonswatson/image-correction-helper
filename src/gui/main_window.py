@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QSpinBox, QLabel,
     QCheckBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QAction, QImage
 import numpy as np
 import cv2
@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
         
         # Add toolbar actions
         load_action = toolbar.addAction("Load Image")
-        load_action.triggered.connect(self._load_image)
+        load_action.triggered.connect(self._on_open_image)
         
         save_action = toolbar.addAction("Save Image")
         save_action.triggered.connect(self._save_image)
@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         # Add preview checkbox
         self.preview_checkbox = QCheckBox("Preview Perspective")
         self.preview_checkbox.stateChanged.connect(self._on_preview_changed)
+        self.preview_checkbox.setToolTip("Select points in order: 1) Top-left, 2) Top-right, 3) Bottom-right, 4) Bottom-left")
         toolbar.addWidget(self.preview_checkbox)
     
     def _create_toolbar(self):
@@ -133,8 +134,8 @@ class MainWindow(QMainWindow):
         self.cols_spinbox.valueChanged.connect(self._update_grid_size)
         toolbar.addWidget(self.cols_spinbox)
     
-    def _load_image(self):
-        """Load an image file."""
+    def _on_open_image(self):
+        """Handle open image action."""
         try:
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
@@ -144,7 +145,7 @@ class MainWindow(QMainWindow):
             )
             
             if file_path:
-                # Load image for display
+                # Load image
                 self.image_view.load_image(file_path)
                 
                 # Store original image for preview
@@ -162,19 +163,52 @@ class MainWindow(QMainWindow):
                 # Convert RGBA to BGR (OpenCV format)
                 self.original_image = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
                 
-                # Reset points and preview
+                # Clear points and grid
                 self.point_selector.clear_points()
                 self.grid_overlay.set_points([])
+                
+                # Reset preview
                 self.preview_checkbox.setChecked(False)
                 
         except Exception as e:
-            logger.error(f"Error loading image: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to load image: {e}")
+            logger.error(f"Error opening image: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to open image: {e}")
     
+    def _order_points(self, points):
+        """Order points to minimize rotation and flipping."""
+        try:
+            # Convert QPointF points to numpy array
+            points_array = np.array([[p.x(), p.y()] for p in points])
+            
+            # Calculate center point
+            center = np.mean(points_array, axis=0)
+            
+            # Calculate angles relative to center
+            angles = np.arctan2(points_array[:, 1] - center[1], points_array[:, 0] - center[0])
+            
+            # Sort points by angle (clockwise from top-left)
+            sorted_indices = np.argsort(angles)
+            
+            # Reorder points
+            ordered_points = [points[i] for i in sorted_indices]
+            
+            # Ensure top-left is first point
+            # Find point with minimum x+y (closest to top-left)
+            distances = [p.x() + p.y() for p in ordered_points]
+            min_index = distances.index(min(distances))
+            
+            # Rotate list to start with top-left
+            ordered_points = ordered_points[min_index:] + ordered_points[:min_index]
+            
+            return ordered_points
+        except Exception as e:
+            logger.error(f"Error ordering points: {e}")
+            return points
+
     def _on_preview_changed(self, state):
         """Handle preview checkbox changes."""
         try:
-            if not self.original_image is not None:
+            if self.original_image is None:
                 return
             
             points = self.point_selector.get_points()
@@ -182,9 +216,23 @@ class MainWindow(QMainWindow):
                 self.preview_checkbox.setChecked(False)
                 return
             
+            # Order points to minimize rotation and flipping
+            ordered_points = self._order_points(points)
+            
             if state == Qt.CheckState.Checked.value:
+                # Store original state if not already stored
+                if not hasattr(self, '_original_state'):
+                    self._original_state = {
+                        'image': self.original_image.copy(),
+                        'points': points.copy(),
+                        'grid_points': self.grid_overlay.grid_points.copy() if self.grid_overlay.grid_points is not None else None
+                    }
+                
+                # Lock points during transform
+                self.point_selector.set_locked(True)
+                
                 # Convert QPointF points to numpy array
-                src_points = np.array([[p.x(), p.y()] for p in points], dtype=np.float32)
+                src_points = np.array([[p.x(), p.y()] for p in ordered_points], dtype=np.float32)
                 
                 # Calculate target points to make grid cells square
                 width = max(
@@ -207,23 +255,92 @@ class MainWindow(QMainWindow):
                 # Calculate perspective transform
                 transform = cv2.getPerspectiveTransform(src_points, target_points)
                 
-                # Apply transform
+                # Calculate the full image bounds after transformation
+                h, w = self.original_image.shape[:2]
+                corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
+                transformed_corners = cv2.perspectiveTransform(corners.reshape(-1, 1, 2), transform).reshape(-1, 2)
+                
+                # Calculate the translation needed to keep all points in view
+                min_x = min(transformed_corners[:, 0])
+                min_y = min(transformed_corners[:, 1])
+                max_x = max(transformed_corners[:, 0])
+                max_y = max(transformed_corners[:, 1])
+                
+                # Create translation matrix
+                translation = np.array([
+                    [1, 0, -min_x if min_x < 0 else 0],
+                    [0, 1, -min_y if min_y < 0 else 0],
+                    [0, 0, 1]
+                ])
+                
+                # Combine translation with perspective transform
+                full_transform = translation @ transform
+                
+                # Calculate output size to fit all transformed points
+                output_width = int(max_x - min_x) if min_x < 0 else int(max_x)
+                output_height = int(max_y - min_y) if min_y < 0 else int(max_y)
+                
+                # Apply transform to image
                 transformed = cv2.warpPerspective(
                     self.original_image,
-                    transform,
-                    (int(width), int(height))
+                    full_transform,
+                    (output_width, output_height)
                 )
                 
-                # Save transformed image to temp file
-                temp_path = "temp_transformed.png"
-                cv2.imwrite(temp_path, transformed)
+                # Update image view with transformed image
+                self.image_view.image = transformed
+                self.image_view._update_scaled_pixmap()
+                self.image_view.update()
                 
-                # Load transformed image
-                self.image_view.load_image(temp_path)
+                # Transform grid points if they exist
+                if self.grid_overlay.grid_points is not None:
+                    # Flatten grid points to 2D array
+                    grid_points = self.grid_overlay.grid_points.reshape(-1, 2)
+                    transformed_grid_points = cv2.perspectiveTransform(
+                        grid_points.reshape(-1, 1, 2),
+                        full_transform
+                    ).reshape(-1, 2)
+                    
+                    # Reshape back to original grid shape
+                    transformed_grid_points = transformed_grid_points.reshape(
+                        self.grid_overlay.rows,
+                        self.grid_overlay.cols,
+                        2
+                    )
+                    
+                    # Update grid points
+                    self.grid_overlay.grid_points = transformed_grid_points
+                    self.grid_overlay.update()
+                
+                # Transform corner points
+                transformed_points = cv2.perspectiveTransform(
+                    src_points.reshape(-1, 1, 2),
+                    full_transform
+                ).reshape(-1, 2)
+                
+                # Update point selector points
+                self.point_selector.points = [QPointF(p[0], p[1]) for p in transformed_points]
+                self.point_selector.update()
+                
             else:
-                # Load original image
-                self.image_view.load_image(self.image_view.current_image_path)
-            
+                # Restore original state
+                if hasattr(self, '_original_state'):
+                    self.image_view.image = self._original_state['image']
+                    self.image_view._update_scaled_pixmap()
+                    self.image_view.update()
+                    
+                    self.point_selector.points = self._original_state['points']
+                    self.point_selector.update()
+                    
+                    if self._original_state['grid_points'] is not None:
+                        self.grid_overlay.grid_points = self._original_state['grid_points']
+                        self.grid_overlay.update()
+                    
+                    delattr(self, '_original_state')
+                
+                # Unlock points
+                self.point_selector.set_locked(False)
+                
         except Exception as e:
             logger.error(f"Error handling preview change: {e}")
             self.preview_checkbox.setChecked(False)
@@ -232,7 +349,7 @@ class MainWindow(QMainWindow):
     def _save_image(self):
         """Save the current image."""
         try:
-            if not self.image_view.image:
+            if self.image_view.image is None:
                 return
             
             file_path, _ = QFileDialog.getSaveFileName(
@@ -243,9 +360,18 @@ class MainWindow(QMainWindow):
             )
             
             if file_path:
-                self.image_view.save_image(file_path)
+                # If preview is active, save the transformed image
+                if self.preview_checkbox.isChecked():
+                    # Convert RGB to BGR for OpenCV
+                    image = cv2.cvtColor(self.image_view.image, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(file_path, image)
+                else:
+                    # Save the original image
+                    cv2.imwrite(file_path, self.original_image)
+                logger.info(f"Image saved: {file_path}")
         except Exception as e:
             logger.error(f"Error saving image: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save image: {e}")
     
     def _fit_to_view(self):
         """Fit the image to the view."""

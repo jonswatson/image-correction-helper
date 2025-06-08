@@ -74,50 +74,35 @@ class GridOverlay(QWidget):
     
     def paintEvent(self, event):
         """Handle paint events."""
-        if not self.is_visible or self.grid_points is None:
-            return
-        
         try:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            
-            # Draw grid lines
-            pen = QPen(QColor(255, 255, 0, 128))  # Semi-transparent yellow
-            pen.setStyle(Qt.PenStyle.DashLine)
-            pen.setWidth(2)
-            painter.setPen(pen)
             
             # Get the image view for coordinate mapping
             image_view = self.parent()
             if not image_view:
                 return
             
-            # Draw horizontal lines
-            for i in range(self.rows):
-                for j in range(self.cols - 1):
-                    # Convert image coordinates to viewport coordinates
-                    p1 = image_view.map_to_viewport(QPointF(self.grid_points[i, j, 0], self.grid_points[i, j, 1]))
-                    p2 = image_view.map_to_viewport(QPointF(self.grid_points[i, j + 1, 0], self.grid_points[i, j + 1, 1]))
-                    painter.drawLine(p1, p2)
-            
-            # Draw vertical lines
-            for j in range(self.cols):
-                for i in range(self.rows - 1):
-                    # Convert image coordinates to viewport coordinates
-                    p1 = image_view.map_to_viewport(QPointF(self.grid_points[i, j, 0], self.grid_points[i, j, 1]))
-                    p2 = image_view.map_to_viewport(QPointF(self.grid_points[i + 1, j, 0], self.grid_points[i + 1, j, 1]))
-                    painter.drawLine(p1, p2)
-            
-            # Draw grid points
-            pen.setStyle(Qt.PenStyle.SolidLine)
-            pen.setColor(QColor(255, 255, 0, 200))  # More opaque yellow
-            painter.setPen(pen)
-            
-            for i in range(self.rows):
-                for j in range(self.cols):
-                    # Convert image coordinates to viewport coordinates
-                    point = image_view.map_to_viewport(QPointF(self.grid_points[i, j, 0], self.grid_points[i, j, 1]))
-                    painter.drawEllipse(point, 3, 3)
+            # Draw grid lines
+            if self.grid_points is not None:
+                # Use semi-transparent green for grid lines
+                pen = QPen(QColor(0, 255, 0, 128))  # Semi-transparent green
+                pen.setWidth(1)
+                painter.setPen(pen)
+                
+                # Draw horizontal lines
+                for row in self.grid_points:
+                    for i in range(len(row) - 1):
+                        p1 = image_view.map_to_viewport(QPointF(row[i][0], row[i][1]))
+                        p2 = image_view.map_to_viewport(QPointF(row[i + 1][0], row[i + 1][1]))
+                        painter.drawLine(p1, p2)
+                
+                # Draw vertical lines
+                for col in range(len(self.grid_points[0])):
+                    for i in range(len(self.grid_points) - 1):
+                        p1 = image_view.map_to_viewport(QPointF(self.grid_points[i][col][0], self.grid_points[i][col][1]))
+                        p2 = image_view.map_to_viewport(QPointF(self.grid_points[i + 1][col][0], self.grid_points[i + 1][col][1]))
+                        painter.drawLine(p1, p2)
         except Exception as e:
             logger.error(f"Error in paint event: {e}")
     

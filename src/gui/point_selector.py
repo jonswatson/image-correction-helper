@@ -17,6 +17,7 @@ class PointSelector(QWidget):
         self.drag_start = None
         self.hover_point = None
         self.is_selecting = False
+        self.is_locked = False  # New flag for transform preview state
         
         # Set up the widget
         self.setMouseTracking(True)
@@ -45,6 +46,11 @@ class PointSelector(QWidget):
         self.drag_start = None
         self.update()
     
+    def set_locked(self, locked):
+        """Set the locked state for transform preview."""
+        self.is_locked = locked
+        self.update()
+    
     def mousePressEvent(self, event):
         """Handle mouse press events."""
         try:
@@ -55,6 +61,11 @@ class PointSelector(QWidget):
             
             # Don't handle point selection if panning is active
             if image_view.is_panning:
+                event.ignore()
+                return
+            
+            # Don't handle point selection if locked
+            if self.is_locked:
                 event.ignore()
                 return
             
@@ -103,6 +114,11 @@ class PointSelector(QWidget):
                 event.ignore()
                 return
             
+            # Don't handle point selection if locked
+            if self.is_locked:
+                event.ignore()
+                return
+            
             # Convert viewport coordinates to image coordinates
             viewport_pos = event.position()
             image_pos = image_view.map_to_image(viewport_pos)
@@ -122,8 +138,6 @@ class PointSelector(QWidget):
                 # Emit point added signal to update grid
                 self.point_added.emit(self.dragging_point, image_pos)
                 self.update()
-            
-            self.update()
         except Exception as e:
             logger.error(f"Error in mouse move event: {e}")
     
@@ -150,8 +164,12 @@ class PointSelector(QWidget):
             if not image_view:
                 return
             
+            # Don't draw points if locked
+            if self.is_locked:
+                return
+            
             # Draw points
-            for point in self.points:
+            for i, point in enumerate(self.points):
                 # Convert image coordinates to viewport coordinates
                 viewport_point = image_view.map_to_viewport(point)
                 

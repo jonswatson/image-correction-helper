@@ -1,28 +1,15 @@
 # Image Correction Helper
 
-A Python application for correcting perspective and distortion in images, particularly useful for grid-based images like graph paper.
+A PyQt6-based application for correcting perspective distortion in images, particularly useful for grid-based images.
 
 ## Features
 
-### Phase 1 (Current)
-- Basic image viewer with zoom and pan functionality
-- Space bar + drag for panning
-- Mouse wheel for zooming
-- Fit to view option
-- Image loading and saving
-
-### Phase 2 (In Progress)
-- Point selection system
-- Perspective correction
-- Grid overlay visualization
-- Complex distortion correction
-
-## Requirements
-
-- Python 3.10+
-- PyQt6
-- OpenCV
-- NumPy
+- Load and display images
+- Select four corner points to define the grid area
+- Adjust grid size (rows and columns)
+- Preview perspective correction in real-time
+- Save corrected images
+- Pan and zoom functionality
 
 ## Installation
 
@@ -32,40 +19,68 @@ git clone https://github.com/yourusername/image-correction-helper.git
 cd image-correction-helper
 ```
 
-2. Create and activate a virtual environment:
+2. Create and activate a conda environment:
 ```bash
 conda env create -f environment.yml
 conda activate grid-correction
 ```
 
-3. Run the application:
+3. Install dependencies:
 ```bash
-python run.py
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-1. Load an image using the "Load Image" button
-2. Use "Fit to View" to see the entire image
-3. Use mouse wheel to zoom in/out
-4. Hold space and drag to pan
-5. Use "Fit to View" to reset the view
-
-## Development
-
-The project is structured as follows:
+1. **Launch the Application**
+```bash
+python run.py
 ```
-src/
-├── __init__.py
-├── main.py
-├── gui/
-│   ├── __init__.py
-│   ├── main_window.py
-│   └── image_view.py
-└── processing/
-    └── __init__.py
-```
+
+2. **Load an Image**
+   - Click "Load Image" in the toolbar
+   - Select an image file (supported formats: PNG, JPG, JPEG, BMP, GIF)
+
+3. **Select Grid Points**
+   - Click on the image to place four corner points
+   - Points can be dragged to adjust their position
+   - Right-click a point to remove it
+   - Points must be placed in any order - the application will automatically determine the correct orientation
+
+4. **Adjust Grid Size**
+   - Use the row and column spinboxes in the toolbar to set the desired grid size
+   - The grid will update automatically
+
+5. **Preview Correction**
+   - Check the "Preview Perspective" checkbox to see the corrected image
+   - The grid will turn semi-transparent green
+   - Points will be hidden during preview
+   - Use space bar + drag to pan the preview
+   - Uncheck to return to the original view
+
+6. **Save the Result**
+   - Click "Save Image" in the toolbar
+   - Choose a location and filename for the corrected image
+
+## Tips
+
+- The application automatically orders the points to minimize rotation and flipping
+- You can adjust points at any time before saving
+- The preview shows how the grid will look when corrected
+- Pan and zoom are always available, even during preview
+- Grid adjustments are only possible in the original view
+
+## Requirements
+
+- Python 3.10+
+- PyQt6
+- OpenCV
+- NumPy
 
 ## License
 
-MIT License 
+[Your chosen license]
+
+## Contributing
+
+[Your contribution guidelines] 

@@ -19,6 +19,7 @@ class ImageView(QWidget):
         self.grid_overlay = None
         self.is_panning = False
         self.last_mouse_pos = None
+        self.current_image_path = None
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     
@@ -36,6 +37,7 @@ class ImageView(QWidget):
             # Store original and current image
             self.original_image = image.copy()
             self.image = image
+            self.current_image_path = file_path
             
             # Reset view
             self.scale_factor = 1.0
