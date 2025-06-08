@@ -15,6 +15,10 @@ class ImageView(QWidget):
         self.scaled_pixmap = None
         self.scale_factor = 1.0
         self.pan_offset = [0, 0]
+        self.point_selector = None
+        self.grid_overlay = None
+        self.is_panning = False
+        self.last_mouse_pos = None
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     
@@ -62,45 +66,74 @@ class ImageView(QWidget):
             logger.error(f"Error saving image: {e}")
             raise
     
-    def pan(self, dx, dy):
-        """Pan the image view."""
-        self.pan_offset[0] += dx
-        self.pan_offset[1] += dy
-        self.update()
+    def set_panning(self, panning):
+        """Set the panning state."""
+        self.is_panning = panning
+        if not panning:
+            self.last_mouse_pos = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
     
-    def wheelEvent(self, event):
-        """Handle mouse wheel events for zooming."""
-        try:
-            # Get the position of the mouse
-            pos = event.position()
-            
-            # Calculate the old scale factor
-            old_scale = self.scale_factor
-            
-            # Update scale factor
-            if event.angleDelta().y() > 0:
-                self.scale_factor *= 1.1
-            else:
-                self.scale_factor /= 1.1
-            
-            # Limit scale factor
-            self.scale_factor = max(0.1, min(10.0, self.scale_factor))
-            
-            # Calculate the new position of the mouse
-            new_pos = QPointF(
-                pos.x() * (self.scale_factor / old_scale),
-                pos.y() * (self.scale_factor / old_scale)
-            )
-            
-            # Update pan offset to keep the mouse position fixed
-            self.pan_offset[0] += (pos.x() - new_pos.x())
-            self.pan_offset[1] += (pos.y() - new_pos.y())
-            
-            # Update display
+    def mousePressEvent(self, event):
+        """Handle mouse press events."""
+        if event.button() == Qt.MouseButton.LeftButton and self.is_panning:
+            self.last_mouse_pos = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events."""
+        if self.is_panning and self.last_mouse_pos is not None:
+            delta = event.position() - self.last_mouse_pos
+            self.pan_offset[0] += delta.x()
+            self.pan_offset[1] += delta.y()
+            self.last_mouse_pos = event.position()
             self._update_scaled_pixmap()
             self.update()
-        except Exception as e:
-            logger.error(f"Error in wheel event: {e}")
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.last_mouse_pos = None
+            if self.is_panning:
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+    
+    def wheelEvent(self, event):
+        """Handle wheel events for zooming."""
+        if self.image is None:
+            return
+        
+        # Calculate zoom factor
+        zoom_factor = 1.1 if event.angleDelta().y() > 0 else 0.9
+        
+        # Get mouse position
+        mouse_pos = event.position()
+        
+        # Calculate new scale factor
+        new_scale = self.scale_factor * zoom_factor
+        
+        # Limit zoom range
+        if 0.1 <= new_scale <= 10.0:
+            # Calculate the position of the mouse relative to the image
+            image_x = (mouse_pos.x() - self.pan_offset[0]) / self.scale_factor
+            image_y = (mouse_pos.y() - self.pan_offset[1]) / self.scale_factor
+            
+            # Update scale factor
+            self.scale_factor = new_scale
+            
+            # Adjust pan offset to keep the point under the mouse in the same position
+            self.pan_offset[0] = mouse_pos.x() - image_x * self.scale_factor
+            self.pan_offset[1] = mouse_pos.y() - image_y * self.scale_factor
+            
+            self._update_scaled_pixmap()
+            self.update()
     
     def _update_scaled_pixmap(self):
         """Update the scaled pixmap."""
@@ -156,6 +189,10 @@ class ImageView(QWidget):
     def resizeEvent(self, event):
         """Handle resize events."""
         super().resizeEvent(event)
+        if self.point_selector:
+            self.point_selector.setGeometry(0, 0, self.width(), self.height())
+        if self.grid_overlay:
+            self.grid_overlay.setGeometry(0, 0, self.width(), self.height())
         if self.image is not None:
             self._update_scaled_pixmap()
             self.update()
@@ -187,4 +224,55 @@ class ImageView(QWidget):
             
             logger.info("Image fitted to view")
         except Exception as e:
-            logger.error(f"Error fitting image to view: {e}") 
+            logger.error(f"Error fitting image to view: {e}")
+    
+    def setPointSelector(self, selector):
+        """Set the point selector widget."""
+        self.point_selector = selector
+        if self.point_selector:
+            self.point_selector.setGeometry(0, 0, self.width(), self.height())
+            self.point_selector.start_selection()
+    
+    def setGridOverlay(self, overlay):
+        """Set the grid overlay widget."""
+        self.grid_overlay = overlay
+        if self.grid_overlay:
+            self.grid_overlay.setGeometry(0, 0, self.width(), self.height())
+    
+    def map_to_image(self, viewport_pos):
+        """Convert viewport coordinates to image coordinates."""
+        if self.image is None or self.scaled_pixmap is None:
+            return QPointF(0, 0)
+        
+        try:
+            # Calculate image position in viewport
+            image_x = (self.width() - self.scaled_pixmap.width()) // 2 + self.pan_offset[0]
+            image_y = (self.height() - self.scaled_pixmap.height()) // 2 + self.pan_offset[1]
+            
+            # Convert from viewport to image coordinates
+            x = (viewport_pos.x() - image_x) / self.scale_factor
+            y = (viewport_pos.y() - image_y) / self.scale_factor
+            
+            return QPointF(x, y)
+        except Exception as e:
+            logger.error(f"Error mapping to image coordinates: {e}")
+            return QPointF(0, 0)
+    
+    def map_to_viewport(self, image_pos):
+        """Convert image coordinates to viewport coordinates."""
+        if self.image is None or self.scaled_pixmap is None:
+            return QPointF(0, 0)
+        
+        try:
+            # Calculate image position in viewport
+            image_x = (self.width() - self.scaled_pixmap.width()) // 2 + self.pan_offset[0]
+            image_y = (self.height() - self.scaled_pixmap.height()) // 2 + self.pan_offset[1]
+            
+            # Convert from image to viewport coordinates
+            x = image_pos.x() * self.scale_factor + image_x
+            y = image_pos.y() * self.scale_factor + image_y
+            
+            return QPointF(x, y)
+        except Exception as e:
+            logger.error(f"Error mapping to viewport coordinates: {e}")
+            return QPointF(0, 0) 

@@ -1,10 +1,13 @@
 import logging
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QToolBar,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QSpinBox, QLabel
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction
 from .image_view import ImageView
+from .point_selector import PointSelector
+from .grid_overlay import GridOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -35,27 +38,179 @@ class MainWindow(QMainWindow):
         fit_action = toolbar.addAction("Fit to View")
         fit_action.triggered.connect(self._fit_to_view)
         
+        clear_action = toolbar.addAction("Clear Points")
+        clear_action.triggered.connect(self._clear_points)
+        
         # Create image view
         self.image_view = ImageView()
         layout.addWidget(self.image_view)
+        
+        # Create point selector
+        self.point_selector = PointSelector(self.image_view)
+        self.image_view.setPointSelector(self.point_selector)
+        self.point_selector.point_added.connect(self._on_point_added)
+        self.point_selector.point_removed.connect(self._on_point_removed)
+        
+        # Create grid overlay
+        self.grid_overlay = GridOverlay(self.image_view)
+        self.image_view.setGridOverlay(self.grid_overlay)
+        self.grid_overlay.set_points(self.point_selector.get_points())
+        
+        # Set focus policy to ensure we receive key events
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.image_view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        
+        # Set up grid size controls
+        self._setup_grid_controls()
         
         # Set up space bar panning
         self.space_pressed = False
         self.last_mouse_pos = None
     
+    def _create_toolbar(self):
+        """Create the main toolbar."""
+        toolbar = QToolBar()
+        self.addToolBar(toolbar)
+        
+        # Load image action
+        load_action = QAction("Load Image", self)
+        load_action.triggered.connect(self._on_load_image)
+        toolbar.addAction(load_action)
+        
+        # Save image action
+        save_action = QAction("Save Image", self)
+        save_action.triggered.connect(self._on_save_image)
+        toolbar.addAction(save_action)
+        
+        toolbar.addSeparator()
+        
+        # Fit to view action
+        fit_action = QAction("Fit to View", self)
+        fit_action.triggered.connect(self._fit_to_view)
+        toolbar.addAction(fit_action)
+        
+        # Clear points action
+        clear_action = QAction("Clear Points", self)
+        clear_action.triggered.connect(self._on_clear_points)
+        toolbar.addAction(clear_action)
+    
+    def _setup_grid_controls(self):
+        """Set up grid size controls in the toolbar."""
+        toolbar = self.findChild(QToolBar)
+        if not toolbar:
+            return
+        
+        toolbar.addSeparator()
+        
+        # Add grid size controls
+        toolbar.addWidget(QLabel("Grid Size:"))
+        
+        # Rows spinbox
+        self.rows_spinbox = QSpinBox()
+        self.rows_spinbox.setRange(2, 20)
+        self.rows_spinbox.setValue(4)
+        self.rows_spinbox.valueChanged.connect(self._update_grid_size)
+        toolbar.addWidget(self.rows_spinbox)
+        
+        toolbar.addWidget(QLabel("x"))
+        
+        # Columns spinbox
+        self.cols_spinbox = QSpinBox()
+        self.cols_spinbox.setRange(2, 20)
+        self.cols_spinbox.setValue(4)
+        self.cols_spinbox.valueChanged.connect(self._update_grid_size)
+        toolbar.addWidget(self.cols_spinbox)
+    
+    def _load_image(self):
+        """Load an image file."""
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open Image",
+                "",
+                "Image Files (*.png *.jpg *.jpeg *.bmp *.gif)"
+            )
+            
+            if file_path:
+                self.image_view.load_image(file_path)
+                self.point_selector.clear_points()
+                self.grid_overlay.set_points([])
+        except Exception as e:
+            logger.error(f"Error loading image: {e}")
+    
+    def _save_image(self):
+        """Save the current image."""
+        try:
+            if not self.image_view.image:
+                return
+            
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Image",
+                "",
+                "PNG Files (*.png);;JPEG Files (*.jpg *.jpeg);;BMP Files (*.bmp)"
+            )
+            
+            if file_path:
+                self.image_view.save_image(file_path)
+        except Exception as e:
+            logger.error(f"Error saving image: {e}")
+    
+    def _fit_to_view(self):
+        """Fit the image to the view."""
+        try:
+            self.image_view.fit_to_view()
+        except Exception as e:
+            logger.error(f"Error fitting to view: {e}")
+    
+    def _update_grid_size(self):
+        """Update the grid size based on spinbox values."""
+        try:
+            rows = self.rows_spinbox.value()
+            cols = self.cols_spinbox.value()
+            self.grid_overlay.set_grid_size(rows, cols)
+        except Exception as e:
+            logger.error(f"Error updating grid size: {e}")
+    
+    def _on_point_added(self, index, point):
+        """Handle point added event."""
+        try:
+            points = self.point_selector.get_points()
+            self.grid_overlay.set_points(points)
+            # Show grid when we have 4 points
+            if len(points) == 4:
+                self.grid_overlay.show_grid(True)
+        except Exception as e:
+            logger.error(f"Error handling point added: {e}")
+    
+    def _on_point_removed(self, index):
+        """Handle point removed event."""
+        try:
+            points = self.point_selector.get_points()
+            self.grid_overlay.set_points(points)
+            # Hide grid if we don't have 4 points
+            if len(points) != 4:
+                self.grid_overlay.show_grid(False)
+        except Exception as e:
+            logger.error(f"Error handling point removed: {e}")
+    
     def keyPressEvent(self, event):
         """Handle key press events."""
         if event.key() == Qt.Key.Key_Space:
-            self.space_pressed = True
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
-        super().keyPressEvent(event)
+            self.image_view.set_panning(True)
+            self.image_view.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
     
     def keyReleaseEvent(self, event):
         """Handle key release events."""
         if event.key() == Qt.Key.Key_Space:
-            self.space_pressed = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-        super().keyReleaseEvent(event)
+            self.image_view.set_panning(False)
+            self.image_view.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+        else:
+            super().keyReleaseEvent(event)
     
     def mousePressEvent(self, event):
         """Handle mouse press events."""
@@ -77,46 +232,11 @@ class MainWindow(QMainWindow):
             self.last_mouse_pos = None
         super().mouseReleaseEvent(event)
     
-    def _load_image(self):
-        """Load an image file."""
+    def _clear_points(self):
+        """Clear all selected points."""
         try:
-            file_name, _ = QFileDialog.getOpenFileName(
-                self,
-                "Open Image",
-                "",
-                "Image Files (*.png *.jpg *.jpeg *.bmp *.gif)"
-            )
-            if file_name:
-                self.image_view.load_image(file_name)
-                logger.info(f"Loaded image: {file_name}")
+            self.point_selector.clear_points()
+            self.grid_overlay.set_points([])
+            self.grid_overlay.show_grid(False)
         except Exception as e:
-            logger.error(f"Error loading image: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to load image: {e}")
-    
-    def _save_image(self):
-        """Save the current image."""
-        try:
-            if self.image_view.image is None:
-                QMessageBox.warning(self, "Warning", "No image to save")
-                return
-            
-            file_name, _ = QFileDialog.getSaveFileName(
-                self,
-                "Save Image",
-                "",
-                "PNG Files (*.png);;JPEG Files (*.jpg *.jpeg);;BMP Files (*.bmp)"
-            )
-            if file_name:
-                self.image_view.save_image(file_name)
-                logger.info(f"Saved image: {file_name}")
-        except Exception as e:
-            logger.error(f"Error saving image: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save image: {e}")
-    
-    def _fit_to_view(self):
-        """Fit the image to the view."""
-        try:
-            self.image_view.fit_to_view()
-        except Exception as e:
-            logger.error(f"Error fitting to view: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to fit image to view: {e}") 
+            logger.error(f"Error clearing points: {e}") 
