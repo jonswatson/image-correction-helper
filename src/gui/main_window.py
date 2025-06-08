@@ -1,10 +1,14 @@
 import logging
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QToolBar,
-    QFileDialog, QMessageBox, QSpinBox, QLabel
+    QFileDialog, QMessageBox, QSpinBox, QLabel,
+    QCheckBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QImage
+import numpy as np
+import cv2
+
 from .image_view import ImageView
 from .point_selector import PointSelector
 from .grid_overlay import GridOverlay
@@ -66,6 +70,14 @@ class MainWindow(QMainWindow):
         # Set up space bar panning
         self.space_pressed = False
         self.last_mouse_pos = None
+        
+        # Store original image for preview
+        self.original_image = None
+        
+        # Add preview checkbox
+        self.preview_checkbox = QCheckBox("Preview Perspective")
+        self.preview_checkbox.stateChanged.connect(self._on_preview_changed)
+        toolbar.addWidget(self.preview_checkbox)
     
     def _create_toolbar(self):
         """Create the main toolbar."""
@@ -132,11 +144,90 @@ class MainWindow(QMainWindow):
             )
             
             if file_path:
+                # Load image for display
                 self.image_view.load_image(file_path)
+                
+                # Store original image for preview
+                image = QImage(file_path)
+                if image.isNull():
+                    raise ValueError("Failed to load image")
+                
+                # Convert QImage to numpy array
+                width = image.width()
+                height = image.height()
+                ptr = image.bits()
+                ptr.setsize(height * width * 4)
+                arr = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
+                
+                # Convert RGBA to BGR (OpenCV format)
+                self.original_image = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+                
+                # Reset points and preview
                 self.point_selector.clear_points()
                 self.grid_overlay.set_points([])
+                self.preview_checkbox.setChecked(False)
+                
         except Exception as e:
             logger.error(f"Error loading image: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load image: {e}")
+    
+    def _on_preview_changed(self, state):
+        """Handle preview checkbox changes."""
+        try:
+            if not self.original_image is not None:
+                return
+            
+            points = self.point_selector.get_points()
+            if len(points) != 4:
+                self.preview_checkbox.setChecked(False)
+                return
+            
+            if state == Qt.CheckState.Checked.value:
+                # Convert QPointF points to numpy array
+                src_points = np.array([[p.x(), p.y()] for p in points], dtype=np.float32)
+                
+                # Calculate target points to make grid cells square
+                width = max(
+                    np.linalg.norm(src_points[1] - src_points[0]),
+                    np.linalg.norm(src_points[2] - src_points[3])
+                )
+                height = max(
+                    np.linalg.norm(src_points[3] - src_points[0]),
+                    np.linalg.norm(src_points[2] - src_points[1])
+                )
+                
+                # Create target points in a rectangle
+                target_points = np.array([
+                    [0, 0],           # Top-left
+                    [width, 0],       # Top-right
+                    [width, height],  # Bottom-right
+                    [0, height]       # Bottom-left
+                ], dtype=np.float32)
+                
+                # Calculate perspective transform
+                transform = cv2.getPerspectiveTransform(src_points, target_points)
+                
+                # Apply transform
+                transformed = cv2.warpPerspective(
+                    self.original_image,
+                    transform,
+                    (int(width), int(height))
+                )
+                
+                # Save transformed image to temp file
+                temp_path = "temp_transformed.png"
+                cv2.imwrite(temp_path, transformed)
+                
+                # Load transformed image
+                self.image_view.load_image(temp_path)
+            else:
+                # Load original image
+                self.image_view.load_image(self.image_view.current_image_path)
+            
+        except Exception as e:
+            logger.error(f"Error handling preview change: {e}")
+            self.preview_checkbox.setChecked(False)
+            QMessageBox.critical(self, "Error", f"Failed to update preview: {e}")
     
     def _save_image(self):
         """Save the current image."""
@@ -238,5 +329,6 @@ class MainWindow(QMainWindow):
             self.point_selector.clear_points()
             self.grid_overlay.set_points([])
             self.grid_overlay.show_grid(False)
+            self.preview_checkbox.setChecked(False)
         except Exception as e:
             logger.error(f"Error clearing points: {e}") 
