@@ -12,6 +12,7 @@ import cv2
 from .image_view import ImageView
 from .point_selector import PointSelector
 from .grid_overlay import GridOverlay
+from .distortion_selector import DistortionSelector
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,12 @@ class MainWindow(QMainWindow):
         self.image_view.setGridOverlay(self.grid_overlay)
         self.grid_overlay.set_points(self.point_selector.get_points())
         
+        # Create distortion selector
+        self.distortion_selector = DistortionSelector(self.image_view)
+        self.image_view.setDistortionSelector(self.distortion_selector)
+        self.distortion_selector.point_added.connect(self._on_distortion_point_added)
+        self.distortion_selector.point_removed.connect(self._on_distortion_point_removed)
+        
         # Set focus policy to ensure we receive key events
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.image_view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -79,6 +86,17 @@ class MainWindow(QMainWindow):
         self.preview_checkbox.stateChanged.connect(self._on_preview_changed)
         self.preview_checkbox.setToolTip("Select points in order: 1) Top-left, 2) Top-right, 3) Bottom-right, 4) Bottom-left")
         toolbar.addWidget(self.preview_checkbox)
+        
+        # Add grid distortion checkbox
+        self.distort_checkbox = QCheckBox("Grid Distort")
+        self.distort_checkbox.stateChanged.connect(self._on_distort_changed)
+        self.distort_checkbox.setToolTip("Click to add distortion points. Each point will be matched to the nearest grid intersection.")
+        self.distort_checkbox.setEnabled(False)  # Initially disabled until preview is enabled
+        toolbar.addWidget(self.distort_checkbox)
+        
+        # Store distortion points
+        self.distortion_points = []
+        self.distortion_vectors = []  # List of (point, grid_point) pairs
     
     def _create_toolbar(self):
         """Create the main toolbar."""
@@ -237,6 +255,14 @@ class MainWindow(QMainWindow):
                 # Lock points during transform
                 self.point_selector.set_locked(True)
                 
+                # Enable grid distortion checkbox
+                self.distort_checkbox.setEnabled(True)
+                
+                # Set up distortion selector
+                self.distortion_selector.set_grid_points(self.grid_overlay.grid_points)
+                self.distortion_selector.set_active(True)
+                self.distortion_selector.raise_()
+                
                 # Convert QPointF points to numpy array
                 src_points = np.array([[p.x(), p.y()] for p in ordered_points], dtype=np.float32)
                 
@@ -317,6 +343,9 @@ class MainWindow(QMainWindow):
                     # Update grid points
                     self.grid_overlay.grid_points = transformed_grid_points
                     self.grid_overlay.update()
+                    
+                    # Update distortion selector with new grid points
+                    self.distortion_selector.set_grid_points(transformed_grid_points)
                 
                 # Transform corner points
                 transformed_points = cv2.perspectiveTransform(
@@ -347,10 +376,65 @@ class MainWindow(QMainWindow):
                 # Unlock points
                 self.point_selector.set_locked(False)
                 
+                # Disable and uncheck grid distortion
+                self.distort_checkbox.setEnabled(False)
+                self.distort_checkbox.setChecked(False)
+                self.distortion_selector.set_active(False)
+                self.distortion_points.clear()
+                self.distortion_vectors.clear()
+                self.grid_overlay.update()
+                
         except Exception as e:
             logger.error(f"Error handling preview change: {e}")
             self.preview_checkbox.setChecked(False)
             QMessageBox.critical(self, "Error", f"Failed to update preview: {e}")
+    
+    def _on_distort_changed(self, state):
+        """Handle grid distortion checkbox changes."""
+        try:
+            if state == Qt.CheckState.Checked.value:
+                # Enable distortion selector
+                self.distortion_selector.set_active(True)
+                self.distortion_selector.set_grid_points(self.grid_overlay.grid_points)
+                
+                # Clear any existing distortion points
+                self.distortion_points.clear()
+                self.distortion_vectors.clear()
+                self.grid_overlay.update()
+            else:
+                # Disable distortion selector
+                self.distortion_selector.set_active(False)
+                
+                # Clear distortion points and vectors
+                self.distortion_points.clear()
+                self.distortion_vectors.clear()
+                self.grid_overlay.update()
+        except Exception as e:
+            logger.error(f"Error handling distort change: {e}")
+            self.distort_checkbox.setChecked(False)
+            QMessageBox.critical(self, "Error", f"Failed to update distortion mode: {e}")
+    
+    def _on_distortion_point_added(self, point, grid_point):
+        """Handle distortion point added event."""
+        try:
+            self.distortion_points.append(point)
+            self.distortion_vectors.append((point, grid_point))
+            self.grid_overlay.set_distortion_points(self.distortion_points, self.distortion_vectors)
+        except Exception as e:
+            logger.error(f"Error handling distortion point added: {e}")
+    
+    def _on_distortion_point_removed(self, point):
+        """Handle distortion point removed event."""
+        try:
+            # Find and remove the point and its vector
+            for i, (p, _) in enumerate(self.distortion_vectors):
+                if p == point:
+                    self.distortion_points.pop(i)
+                    self.distortion_vectors.pop(i)
+                    break
+            self.grid_overlay.set_distortion_points(self.distortion_points, self.distortion_vectors)
+        except Exception as e:
+            logger.error(f"Error handling distortion point removed: {e}")
     
     def _save_image(self):
         """Save the current image."""
@@ -458,9 +542,19 @@ class MainWindow(QMainWindow):
     def _clear_points(self):
         """Clear all selected points."""
         try:
-            self.point_selector.clear_points()
-            self.grid_overlay.set_points([])
-            self.grid_overlay.show_grid(False)
-            self.preview_checkbox.setChecked(False)
+            if self.preview_checkbox.isChecked():
+                # In preview mode, only clear distortion points
+                self.distortion_points.clear()
+                self.distortion_vectors.clear()
+                self.distortion_selector.clear_points()
+                self.grid_overlay.set_distortion_points([], [])
+            else:
+                # Not in preview mode, clear everything
+                self.point_selector.clear_points()
+                self.grid_overlay.set_points([])
+                self.grid_overlay.show_grid(False)
+                self.preview_checkbox.setChecked(False)
+                self.distortion_points.clear()
+                self.distortion_vectors.clear()
         except Exception as e:
             logger.error(f"Error clearing points: {e}") 

@@ -17,6 +17,7 @@ class ImageView(QWidget):
         self.pan_offset = [0, 0]
         self.point_selector = None
         self.grid_overlay = None
+        self.distortion_selector = None
         self.is_panning = False
         self.last_mouse_pos = None
         self.current_image_path = None
@@ -195,6 +196,8 @@ class ImageView(QWidget):
             self.point_selector.setGeometry(0, 0, self.width(), self.height())
         if self.grid_overlay:
             self.grid_overlay.setGeometry(0, 0, self.width(), self.height())
+        if self.distortion_selector:
+            self.distortion_selector.setGeometry(0, 0, self.width(), self.height())
         if self.image is not None:
             self._update_scaled_pixmap()
             self.update()
@@ -240,6 +243,12 @@ class ImageView(QWidget):
         self.grid_overlay = overlay
         if self.grid_overlay:
             self.grid_overlay.setGeometry(0, 0, self.width(), self.height())
+    
+    def setDistortionSelector(self, selector):
+        """Set the distortion selector widget."""
+        self.distortion_selector = selector
+        if self.distortion_selector:
+            self.distortion_selector.setGeometry(0, 0, self.width(), self.height())
     
     def map_to_image(self, viewport_pos):
         """Convert viewport coordinates to image coordinates."""

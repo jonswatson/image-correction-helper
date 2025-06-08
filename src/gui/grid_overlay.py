@@ -14,6 +14,8 @@ class GridOverlay(QWidget):
         self.rows = 4
         self.cols = 4
         self.is_visible = False
+        self.distortion_points = []  # List of QPointF coordinates for distortion points
+        self.distortion_vectors = []  # List of (point, grid_point) pairs
         
         # Set up the widget
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -38,6 +40,12 @@ class GridOverlay(QWidget):
     def show_grid(self, show=True):
         """Show or hide the grid."""
         self.is_visible = show
+        self.update()
+    
+    def set_distortion_points(self, points, vectors):
+        """Set the distortion points and their corresponding grid points."""
+        self.distortion_points = points
+        self.distortion_vectors = vectors
         self.update()
     
     def _generate_grid(self):
@@ -103,6 +111,31 @@ class GridOverlay(QWidget):
                         p1 = image_view.map_to_viewport(QPointF(self.grid_points[i][col][0], self.grid_points[i][col][1]))
                         p2 = image_view.map_to_viewport(QPointF(self.grid_points[i + 1][col][0], self.grid_points[i + 1][col][1]))
                         painter.drawLine(p1, p2)
+            
+            # Draw distortion points and vectors
+            if self.distortion_points and self.distortion_vectors:
+                # Draw distortion points in blue
+                pen = QPen(QColor(0, 0, 255))  # Blue
+                pen.setWidth(2)
+                painter.setPen(pen)
+                
+                for point, grid_point in self.distortion_vectors:
+                    # Convert points to viewport coordinates
+                    viewport_point = image_view.map_to_viewport(point)
+                    viewport_grid = image_view.map_to_viewport(grid_point)
+                    
+                    # Draw distortion point
+                    size = 10
+                    painter.drawEllipse(viewport_point, size, size)
+                    
+                    # Draw vector from grid point to distortion point
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                    painter.setPen(pen)
+                    painter.drawLine(viewport_grid, viewport_point)
+                    
+                    # Reset pen style
+                    pen.setStyle(Qt.PenStyle.SolidLine)
+                    painter.setPen(pen)
         except Exception as e:
             logger.error(f"Error in paint event: {e}")
     
